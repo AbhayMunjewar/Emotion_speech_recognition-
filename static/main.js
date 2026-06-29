@@ -113,11 +113,6 @@ async function startRecording() {
             const secs = String(recordingDuration % 60).padStart(2, '0');
             const mins = String(Math.floor(recordingDuration / 60)).padStart(2, '0');
             timerDisplay.textContent = `${mins}:${secs}`;
-            
-            // Automatically stop recording after 4 seconds (safe length)
-            if (recordingDuration >= 4) {
-                stopRecording();
-            }
         }, 1000);
 
     } catch (err) {
