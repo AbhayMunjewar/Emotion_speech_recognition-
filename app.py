@@ -99,8 +99,23 @@ def predict():
         temp_path = os.path.join(temp_dir, "uploaded_audio.wav")
         file.save(temp_path)
 
-        # Load audio (duration matches training offset/duration parameters)
-        audio, sr = librosa.load(temp_path, duration=3.0, offset=0.5)
+        # Load audio (load full file at standard 22050 Hz)
+        audio, sr = librosa.load(temp_path, sr=22050)
+
+        # Trim leading and trailing silence (threshold of 25 dB)
+        audio_trimmed, _ = librosa.effects.trim(audio, top_db=25)
+
+        # Ensure the audio is exactly 3.0 seconds (66150 samples)
+        target_len = int(3.0 * sr)
+        if len(audio_trimmed) < target_len:
+            # Pad with silence if shorter
+            audio = np.pad(audio_trimmed, (0, target_len - len(audio_trimmed)), 'constant')
+        else:
+            # Crop to 3.0 seconds if longer
+            audio = audio_trimmed[:target_len]
+
+        # Normalize audio to match RAVDESS volume levels
+        audio = librosa.util.normalize(audio)
 
         # Extract features
         features = extract_rich_features(audio, sr)
