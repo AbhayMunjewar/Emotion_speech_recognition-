@@ -11,9 +11,8 @@ import os
 import librosa
 
 # ── 1. Feature Extraction (Richer Features: 400+) ────────────────────────
-def extract_rich_features(file_path):
+def extract_rich_features(audio, sr):
     try:
-        audio, sr = librosa.load(file_path, duration=3.0, offset=0.5)
         features = []
         
         # 1. MFCCs mean + std + delta + delta2 → 40×4 = 160
@@ -70,19 +69,29 @@ def extract_rich_features(file_path):
 
         return np.array(features)
     except Exception as e:
-        print(f"Error processing {file_path}: {e}")
+        print(f"Error extracting features: {e}")
         return None
 
+def add_noise(data):
+    noise_amp = 0.035 * np.random.uniform() * np.amax(data)
+    return data + noise_amp * np.random.normal(size=data.shape[0])
+
+def stretch(data, rate=0.8):
+    return librosa.effects.time_stretch(y=data, rate=rate)
+
+def pitch(data, sr, pitch_factor=0.7):
+    return librosa.effects.pitch_shift(y=data, sr=sr, n_steps=pitch_factor)
+
 def load_or_extract_features():
-    features_file = "X_features_rich.npy"
-    labels_file = "y_labels_rich.npy"
+    features_file = "X_features_rich_aug.npy"
+    labels_file = "y_labels_rich_aug.npy"
     dataset_path = "dataset"
     
     if os.path.exists(features_file) and os.path.exists(labels_file):
-        print(f"Loading cached richer features from {features_file}...")
+        print(f"Loading cached richer augmented features from {features_file}...")
         return np.load(features_file), np.load(labels_file)
         
-    print("Extracting 400+ richer features from dataset. This may take a while...")
+    print("Extracting 400+ richer features with Data Augmentation (4x dataset size). This will take ~10 minutes...")
     X, y = [], []
     count = 0
     for actor_folder in sorted(os.listdir(dataset_path)):
@@ -94,18 +103,47 @@ def load_or_extract_features():
             if file.endswith('.wav'):
                 file_path = os.path.join(actor_path, file)
                 try:
-                    # RAVDESS format, emotion is 3rd part, 1-indexed. Make it 0-indexed.
                     emotion = int(file.split('-')[2]) - 1
                 except:
                     continue
                 
-                feat = extract_rich_features(file_path)
+                # Load Audio
+                try:
+                    audio, sr = librosa.load(file_path, duration=3.0, offset=0.5)
+                except Exception as e:
+                    print(f"Failed to load {file_path}")
+                    continue
+
+                # 1. Original
+                feat = extract_rich_features(audio, sr)
                 if feat is not None:
                     X.append(feat)
                     y.append(emotion)
-                    count += 1
-                    if count % 100 == 0:
-                        print(f"Processed {count} files...")
+                
+                # 2. Noise
+                noise_audio = add_noise(audio)
+                feat_noise = extract_rich_features(noise_audio, sr)
+                if feat_noise is not None:
+                    X.append(feat_noise)
+                    y.append(emotion)
+                
+                # 3. Stretch
+                stretch_audio = stretch(audio)
+                feat_stretch = extract_rich_features(stretch_audio, sr)
+                if feat_stretch is not None:
+                    X.append(feat_stretch)
+                    y.append(emotion)
+                
+                # 4. Pitch
+                pitch_audio = pitch(audio, sr)
+                feat_pitch = extract_rich_features(pitch_audio, sr)
+                if feat_pitch is not None:
+                    X.append(feat_pitch)
+                    y.append(emotion)
+
+                count += 1
+                if count % 50 == 0:
+                    print(f"Processed {count} original files (extracted {count * 4} samples)...")
                         
     X = np.array(X)
     y = np.array(y)

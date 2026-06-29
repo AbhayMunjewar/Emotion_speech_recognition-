@@ -2,3 +2,6 @@ venv/
 dataset/
 *.npy
 __pycache__/
+*.pkl
+*.h5
+*.keras
