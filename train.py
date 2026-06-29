@@ -166,22 +166,18 @@ print(f"Train: {X_train.shape[0]} | Test: {X_test.shape[0]}")
 # ── 3. Scale & Select Features ────────────────────────────
 # MLP needs features on same scale
 scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled  = scaler.transform(X_test)
+X_train = scaler.fit_transform(X_train)
+X_test  = scaler.transform(X_test)
 
-from sklearn.feature_selection import SelectKBest, f_classif
-# Select top 300 features to reduce noise
-selector = SelectKBest(f_classif, k=300)
-X_train = selector.fit_transform(X_train_scaled, y_train)
-X_test = selector.transform(X_test_scaled)
-print(f"Selected top 300 features. New shape: {X_train.shape}")
+print(f"Using all {X_train.shape[1]} features (no feature selection needed for augmented dataset).")
 
 from sklearn.svm import SVC
 from sklearn.ensemble import VotingClassifier, ExtraTreesClassifier
 from sklearn.neural_network import MLPClassifier
+from xgboost import XGBClassifier
 
 # ── 4. Train Model ──────────────────────────────────────
-print("\nTraining Ensemble (MLP + SVM + ExtraTrees) to reach ~80%...")
+print("\nTraining Ensemble (MLP + SVM + ExtraTrees + XGBoost) to reach 90%+...")
 
 mlp = MLPClassifier(
     hidden_layer_sizes=(512, 256, 128),
@@ -208,8 +204,16 @@ et = ExtraTreesClassifier(
     random_state=42
 )
 
+xgb = XGBClassifier(
+    n_estimators=500,
+    learning_rate=0.05,
+    max_depth=6,
+    random_state=42,
+    n_jobs=-1
+)
+
 model = VotingClassifier(
-    estimators=[('mlp', mlp), ('svm', svm), ('et', et)],
+    estimators=[('mlp', mlp), ('svm', svm), ('et', et), ('xgb', xgb)],
     voting='soft'
 )
 
