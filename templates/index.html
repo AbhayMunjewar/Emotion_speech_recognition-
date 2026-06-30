@@ -3,137 +3,214 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Voice Emotion Analyzer - Speech Recognition Dashboard</title>
-    <meta name="description" content="An advanced real-time speech emotion recognition app built with Python, Librosa, and Ensemble Machine Learning.">
+    <title>Voice Emotion Analytics Platform - Production Console</title>
+    <meta name="description" content="State-of-the-art voice emotion recognition platform. Evaluates pitch contours, chroma signals, and spectral contours in real-time.">
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <!-- CSS Stylesheet -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <div class="glass-bg"></div>
+    <!-- Background Lights -->
+    <div class="glow-bg"></div>
+    <div class="light-sphere sphere-top-right"></div>
+    <div class="light-sphere sphere-bottom-left"></div>
     
     <div class="container">
-        <header>
-            <div class="app-logo">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <rect x="3" y="10" width="2" height="4" rx="1" fill="url(#grad)" />
-                    <rect x="7" y="6" width="2" height="12" rx="1" fill="url(#grad)" />
-                    <rect x="11" y="3" width="2" height="18" rx="1" fill="url(#grad)" />
-                    <rect x="15" y="6" width="2" height="12" rx="1" fill="url(#grad)" />
-                    <rect x="19" y="10" width="2" height="4" rx="1" fill="url(#grad)" />
-                    <defs>
-                        <linearGradient id="grad" x1="3" y1="3" x2="21" y2="21" gradientUnits="userSpaceOnUse">
-                            <stop offset="0%" stop-color="#8a2387"/>
-                            <stop offset="50%" stop-color="#e94057"/>
-                            <stop offset="100%" stop-color="#f27121"/>
-                        </linearGradient>
-                    </defs>
-                </svg>
+        <!-- Header Console -->
+        <header class="hero-section">
+            <div class="badge-container">
+                <span class="status-indicator"></span>
+                <span class="badge-text">ML Ensemble v2.0 • 90.54% Accuracy</span>
             </div>
-            <h1 id="app-title">Voice Emotion Analyzer</h1>
-            <p class="subtitle">AI-powered speech emotion recognition engine using a 90.5% accurate ML ensemble</p>
+            <h1>Speech Emotion Recognition Console</h1>
+            <p class="subtitle">Extracting acoustic descriptors (MFCCs, Spectral, Pitch, Tonnetz) to map emotional contours in real-time.</p>
         </header>
 
-        <main class="dashboard-grid">
-            <!-- Left Panel: Input controls -->
-            <section class="card control-panel" aria-labelledby="input-controls-title">
-                <h2 id="input-controls-title" class="section-title">Input Audio Source</h2>
+        <!-- Dashboard Layout Grid -->
+        <main class="dashboard-layout">
+            
+            <!-- Column 1: Audio Ingestion -->
+            <section class="card ingestion-card" aria-labelledby="input-source-title">
+                <div class="card-header">
+                    <span class="card-step">01</span>
+                    <h2 id="input-source-title" class="card-title">Audio Ingestion</h2>
+                </div>
                 
-                <!-- Mic recording section -->
-                <div class="input-module recorder-module">
-                    <h3>Direct Voice Recording</h3>
-                    <p class="module-help">Speak into your microphone. Recommended length is 3 seconds.</p>
+                <!-- Mic Module -->
+                <div class="ingestion-module mic-module">
+                    <div class="module-title-row">
+                        <h3>Microphone Recording</h3>
+                        <span class="tech-label">Web Audio API</span>
+                    </div>
+                    <p class="help-text">Record speech sample directly. Maintain a clear, natural speaking tone.</p>
                     
-                    <div class="recorder-controls">
-                        <button id="btn-record" class="btn btn-record" aria-label="Start Recording">
-                            <span class="record-icon"></span>
+                    <div class="mic-controls">
+                        <button id="btn-record" class="btn btn-record" aria-label="Toggle Microphone Recording">
+                            <div class="pulse-wrapper">
+                                <span class="record-pulse-core"></span>
+                                <span class="record-pulse-ring"></span>
+                            </div>
                             <span id="record-text">Start Recording</span>
                         </button>
                     </div>
-                    
-                    <!-- Waveform animation -->
+
+                    <!-- Visualizer -->
                     <div id="visualizer-container" class="hidden">
+                        <div class="visualizer-details">
+                            <span id="timer">00:00</span>
+                            <span class="mono-label">MONO • 22050Hz</span>
+                        </div>
                         <canvas id="waveform-canvas"></canvas>
-                        <span id="timer">00:00</span>
                     </div>
                 </div>
 
-                <div class="divider"><span>OR</span></div>
+                <div class="card-divider">
+                    <span>OR USE AUDIO FILE</span>
+                </div>
 
-                <!-- File uploader section -->
-                <div class="input-module upload-module">
-                    <h3>Upload Audio File</h3>
-                    <p class="module-help">Upload a recorded wav file (16-bit PCM format suggested).</p>
+                <!-- Upload Module -->
+                <div class="ingestion-module upload-module">
+                    <div class="module-title-row">
+                        <h3>Audio File Upload</h3>
+                        <span class="tech-label">PCM WAV</span>
+                    </div>
+                    <p class="help-text">Drag-and-drop a pre-recorded .wav speech file here.</p>
                     
                     <div id="drop-zone" class="drop-zone">
-                        <svg class="upload-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <svg class="drop-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
                         </svg>
-                        <p class="upload-text">Drag & drop your wav file here or <span class="browse-link">Browse</span></p>
+                        <p class="drop-text">Drag file here or <span class="highlight-link">Browse files</span></p>
                         <input type="file" id="file-input" accept=".wav" class="hidden">
                     </div>
+
+                    <!-- File Attached Display -->
                     <div id="file-info" class="hidden">
-                        <span id="file-name">filename.wav</span>
-                        <button id="btn-remove-file" class="btn-icon" aria-label="Remove File">&times;</button>
+                        <div class="file-details">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                            </svg>
+                            <span id="file-name">filename.wav</span>
+                        </div>
+                        <button id="btn-remove-file" class="btn-clear" aria-label="Clear File">&times;</button>
                     </div>
                 </div>
 
-                <button id="btn-analyze" class="btn btn-primary" disabled>
-                    <span>Analyze Voice Emotion</span>
+                <!-- Analyze Button -->
+                <button id="btn-analyze" class="btn btn-action" disabled>
+                    <span>Execute Inference Pipeline</span>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                        <polyline points="12 5 19 12 12 19"></polyline>
+                    </svg>
                 </button>
             </section>
 
-            <!-- Right Panel: Results display -->
-            <section class="card results-panel" aria-labelledby="results-title">
-                <h2 id="results-title" class="section-title">Analysis Results</h2>
+            <!-- Column 2: Diagnostic Dashboard -->
+            <section class="card diagnostics-card" aria-labelledby="diagnostics-title">
+                <div class="card-header">
+                    <span class="card-step">02</span>
+                    <h2 id="diagnostics-title" class="card-title">Diagnostics Report</h2>
+                </div>
 
-                <!-- Default empty state -->
+                <!-- Empty State -->
                 <div id="empty-state" class="empty-state">
-                    <div class="pulse-ring">
-                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                            <circle cx="12" cy="12" r="10"/>
-                            <path d="M12 16v-4M12 8h.01"/>
+                    <div class="state-graphic">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25">
+                            <path d="M12 1a11 11 0 1 0 11 11A11 11 0 0 0 12 1zm0 20a9 9 0 1 1 9-9 9 9 0 0 1-9 9z"/>
+                            <path d="M12 7v5l3 2"/>
                         </svg>
                     </div>
-                    <p>No audio analyzed yet. Record your voice or upload a WAV file to get started.</p>
+                    <p>Inference engine idle. Ingest a sound file or record voice to initiate acoustic analysis.</p>
                 </div>
 
-                <!-- Analysis loader -->
+                <!-- Loader -->
                 <div id="analysis-loader" class="hidden">
-                    <div class="spinner"></div>
-                    <p>Extracting acoustic features and running model inference...</p>
+                    <div class="radar-scan"></div>
+                    <p class="loader-status">Running DSP Pipeline...</p>
                 </div>
 
-                <!-- Prediction output -->
+                <!-- Results Output -->
                 <div id="results-container" class="hidden">
-                    <div class="prediction-header">
-                        <div id="prediction-emoji" class="prediction-emoji">😐</div>
-                        <div>
-                            <span class="prediction-label">Detected Emotion</span>
-                            <div id="prediction-value" class="prediction-value">Neutral</div>
+                    
+                    <!-- Classifier Result Summary -->
+                    <div class="primary-prediction-panel">
+                        <div id="prediction-emoji" class="emoji-frame">😐</div>
+                        <div class="primary-details">
+                            <span class="analysis-tag">Primary Sentiment Output</span>
+                            <div id="prediction-value" class="sentiment-value">Neutral</div>
                         </div>
                     </div>
 
-                    <!-- Progress bars for all classes -->
-                    <div class="probability-bars">
-                        <h3>Emotion Probability Spectrum</h3>
-                        <div id="bars-list" class="bars-list">
-                            <!-- Dynamically generated progress bars go here -->
-                        </div>
+                    <!-- Audio playback player -->
+                    <div class="playback-panel">
+                        <h4>Source Playback Console</h4>
+                        <audio id="audio-playback" controls class="custom-audio-player"></audio>
+                    </div>
+
+                    <!-- Descriptive Analysis -->
+                    <div class="descriptive-panel">
+                        <h4>Acoustic Feature Descriptors</h4>
+                        <p id="diagnostic-desc" class="diagnostic-desc">Extracting prosodic elements and spectral energy distribution...</p>
                     </div>
                 </div>
             </section>
+
+            <!-- Column 3: Emotion Spectrum Grid -->
+            <section class="card spectrum-card" aria-labelledby="spectrum-title">
+                <div class="card-header">
+                    <span class="card-step">03</span>
+                    <h2 id="spectrum-title" class="card-title">Probability Spectrum</h2>
+                </div>
+                
+                <div id="spectrum-empty" class="empty-state">
+                    <p>Waiting for classification output...</p>
+                </div>
+
+                <div id="bars-list" class="bars-list hidden">
+                    <!-- Progress meters generated dynamically -->
+                </div>
+            </section>
         </main>
+
+        <!-- Guidelines Panel -->
+        <section class="guidelines-card card" aria-labelledby="guidelines-title">
+            <h2 id="guidelines-title" class="guidelines-heading">Testing Guidelines for Speech Emotion Recognition</h2>
+            <div class="guidelines-grid">
+                <div class="guide-item">
+                    <span class="guide-num">A</span>
+                    <div class="guide-content">
+                        <h4>Prosodic Variability</h4>
+                        <p>Speech emotion recognition depends heavily on prosodic variables (pitch contours, speech rate, and energy dynamics) rather than verbal semantics.</p>
+                    </div>
+                </div>
+                <div class="guide-item">
+                    <span class="guide-num">B</span>
+                    <div class="guide-content">
+                        <h4>Acoustic Reference Standards</h4>
+                        <p>Speak clearly and with intent. Act out emotions similarly to classical training references (e.g. fast, loud for Anger; soft, slow for Sadness).</p>
+                    </div>
+                </div>
+                <div class="guide-item">
+                    <span class="guide-num">C</span>
+                    <div class="guide-content">
+                        <h4>Microphone Settings</h4>
+                        <p>Ensure you are in a quiet room. High background frequency hiss can be mistakenly processed as high energy spectral cues (like Anger or Fear).</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <footer>
+            <p>Voice Emotion Analysis Platform • Powered by scikit-learn Ensemble & Librosa Signal Processing Pipeline • v2.0.0</p>
+        </footer>
     </div>
 
-    <footer>
-        <p>© 2026 Voice Emotion Analyzer. Powered by Speech Signal Processing & Machine Learning Ensemble.</p>
-    </footer>
-
-    <!-- Main JS logic -->
+    <!-- Main Controller JS -->
     <script src="{{ url_for('static', filename='main.js') }}"></script>
 </body>
 </html>

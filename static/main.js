@@ -28,9 +28,13 @@ const emptyState = document.getElementById("empty-state");
 const loader = document.getElementById("analysis-loader");
 const resultsContainer = document.getElementById("results-container");
 
+const audioPlayback = document.getElementById("audio-playback");
+const diagnosticDesc = document.getElementById("diagnostic-desc");
+
 const predictionEmoji = document.getElementById("prediction-emoji");
 const predictionValue = document.getElementById("prediction-value");
 const barsList = document.getElementById("bars-list");
+const spectrumEmpty = document.getElementById("spectrum-empty");
 
 // Emoji map for emotions
 const EMOJI_MAP = {
@@ -47,19 +51,31 @@ const EMOJI_MAP = {
 // Color map for emotions
 const COLOR_MAP = {
     neutral: "#718096",
-    calm: "#4299e1",
-    happy: "#ecc94b",
-    sad: "#3182ce",
-    angry: "#e53e3e",
-    fearful: "#805ad5",
-    disgust: "#38a169",
-    surprised: "#dd6b20"
+    calm: "#3b82f6",
+    happy: "#eab308",
+    sad: "#2563eb",
+    angry: "#ef4444",
+    fearful: "#8b5cf6",
+    disgust: "#10b981",
+    surprised: "#f97316"
+};
+
+// Diagnostic descriptors for voice emotions
+const DIAGNOSTIC_DESCRIPTORS = {
+    neutral: "The voice signal displays steady frequency contours with minimum pitch variation and standardized amplitude levels, denoting a relaxed and control-state posture.",
+    calm: "Low energy speech featuring gentle frequency slopes, slow syllable tempo, and a warm voice configuration denoting peace and mental safety.",
+    happy: "Elevated fundamental frequency (F0) levels, high voice energy, and expressive melodic variations indicating excitement and positive arousal.",
+    sad: "Slower speaking rate, lower pitch, and a soft voice configuration. The spectral envelope demonstrates a steep downward slope, indicating negative valence.",
+    angry: "High amplitude, fast syllable articulation, and intense high-frequency energy. The pitch contour demonstrates sharp ascending steps reflecting aggressive valence.",
+    fearful: "High pitch, rapid speech rate, and jitter in pitch variation. The frequency envelope is narrow but high-frequency dominant, indicating anxiety.",
+    disgust: "Slightly slower speech rate, low pitch with low vocal tension, and flat frequency variations indicating rejection or low engagement.",
+    surprised: "Sharp, sudden increases in fundamental frequency (F0) and amplitude peaks. Wide pitch sweeps showing dynamic valence."
 };
 
 // Set canvas size
 function resizeCanvas() {
-    waveformCanvas.width = visualizerContainer.clientWidth - 32;
-    waveformCanvas.height = 60;
+    waveformCanvas.width = visualizerContainer.clientWidth - 28;
+    waveformCanvas.height = 50;
 }
 window.addEventListener("resize", resizeCanvas);
 
@@ -72,6 +88,7 @@ async function startRecording() {
     isRecording = true;
     activeAudioBlob = null;
     btnAnalyze.disabled = true;
+    audioPlayback.src = "";
 
     try {
         mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
@@ -128,7 +145,7 @@ function stopRecording() {
 
     // UI Updates
     btnRecord.classList.remove("recording");
-    recordText.textContent = "Record Again";
+    recordText.textContent = "Start Recording";
     clearInterval(recordTimer);
 
     // Stop streams
@@ -147,6 +164,10 @@ function stopRecording() {
     const sampleRate = audioContext.sampleRate;
     activeAudioBlob = encodeWAV(mergedBuffer, sampleRate);
     
+    // Bind local playback URL to the native player
+    const audioUrl = URL.createObjectURL(activeAudioBlob);
+    audioPlayback.src = audioUrl;
+    
     // Enable Analyze Button
     btnAnalyze.disabled = false;
 }
@@ -161,11 +182,11 @@ function cleanupRecordingState() {
 
 // Draw basic dynamic oscilloscope
 function drawWaveform(buffer) {
-    canvasCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    canvasCtx.fillStyle = 'rgba(0, 0, 0, 0.4)';
     canvasCtx.fillRect(0, 0, waveformCanvas.width, waveformCanvas.height);
     
     canvasCtx.lineWidth = 2;
-    canvasCtx.strokeStyle = '#ef4057';
+    canvasCtx.strokeStyle = '#ec4899';
     canvasCtx.beginPath();
     
     const sliceWidth = waveformCanvas.width / buffer.length;
@@ -298,6 +319,10 @@ function handleSelectedFile(file) {
     fileInfo.classList.remove("hidden");
     dropZone.classList.add("hidden");
     
+    // Bind local playback URL to the native player
+    const audioUrl = URL.createObjectURL(activeAudioBlob);
+    audioPlayback.src = audioUrl;
+    
     btnAnalyze.disabled = false;
 }
 
@@ -307,6 +332,7 @@ btnRemoveFile.addEventListener("click", () => {
     fileInfo.classList.add("hidden");
     dropZone.classList.remove("hidden");
     btnAnalyze.disabled = true;
+    audioPlayback.src = "";
 });
 
 // ── 3. Predictions and Results Spectrum ─────────────────────────────────
@@ -325,6 +351,8 @@ btnAnalyze.addEventListener("click", async () => {
     // Show Loader
     emptyState.classList.add("hidden");
     resultsContainer.classList.add("hidden");
+    barsList.classList.add("hidden");
+    spectrumEmpty.classList.add("hidden");
     loader.classList.remove("hidden");
     btnAnalyze.disabled = true;
 
@@ -346,6 +374,7 @@ btnAnalyze.addEventListener("click", async () => {
         } else {
             alert(`Analysis failed: ${data.error || "Unknown Error"}`);
             emptyState.classList.remove("hidden");
+            spectrumEmpty.classList.remove("hidden");
         }
 
     } catch (err) {
@@ -353,6 +382,7 @@ btnAnalyze.addEventListener("click", async () => {
         alert("Server communication failed.");
         loader.classList.add("hidden");
         emptyState.classList.remove("hidden");
+        spectrumEmpty.classList.remove("hidden");
         btnAnalyze.disabled = false;
     }
 });
@@ -362,7 +392,10 @@ function displayResults(prediction, probabilities) {
     predictionValue.textContent = prediction;
     predictionEmoji.textContent = EMOJI_MAP[prediction] || "😐";
     
-    const accentColor = COLOR_MAP[prediction] || "#e94057";
+    // Bind descriptive analytics
+    diagnosticDesc.textContent = DIAGNOSTIC_DESCRIPTORS[prediction] || "Speech elements processed successfully.";
+
+    const accentColor = COLOR_MAP[prediction] || "#ec4899";
     predictionValue.style.backgroundImage = `linear-gradient(90deg, ${accentColor} 0%, #ffffff 100%)`;
 
     // Render Progress Bars
@@ -383,7 +416,7 @@ function displayResults(prediction, probabilities) {
                 <span class="bar-val">${pct}%</span>
             </div>
             <div class="bar-track">
-                <div class="bar-fill" style="width: 0%; background: ${COLOR_MAP[emotion] || '#e94057'}"></div>
+                <div class="bar-fill" style="width: 0%; background: ${COLOR_MAP[emotion] || '#ec4899'}"></div>
             </div>
         `;
         
@@ -396,4 +429,5 @@ function displayResults(prediction, probabilities) {
     });
 
     resultsContainer.classList.remove("hidden");
+    barsList.classList.remove("hidden");
 }
