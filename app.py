@@ -3,6 +3,7 @@ import tempfile
 import numpy as np
 import librosa
 import joblib
+import noisereduce as nr
 from flask import Flask, request, jsonify, render_template
 
 app = Flask(__name__)
@@ -99,23 +100,31 @@ def predict():
         temp_path = os.path.join(temp_dir, "uploaded_audio.wav")
         file.save(temp_path)
 
-        # Load audio (load full file at standard 22050 Hz)
+        # 1. Load audio
         audio, sr = librosa.load(temp_path, sr=22050)
 
-        # Trim leading and trailing silence (threshold of 25 dB)
-        audio_trimmed, _ = librosa.effects.trim(audio, top_db=25)
+        # 2. Noise reduction
+        audio = nr.reduce_noise(y=audio, sr=sr, prop_decrease=0.75)
 
-        # Ensure the audio is exactly 3.0 seconds (66150 samples)
+        # 3. Trim silence aggressively (threshold of 30 dB)
+        audio_trimmed, _ = librosa.effects.trim(audio, top_db=30)
+
+        # 4. Do NOT zero-pad to 3 seconds if shorter, just process the active speech.
+        # But if it's too long, crop it to 3.0 seconds to match max training length.
         target_len = int(3.0 * sr)
-        if len(audio_trimmed) < target_len:
-            # Pad with silence if shorter
-            audio = np.pad(audio_trimmed, (0, target_len - len(audio_trimmed)), 'constant')
-        else:
-            # Crop to 3.0 seconds if longer
+        if len(audio_trimmed) > target_len:
             audio = audio_trimmed[:target_len]
+        else:
+            audio = audio_trimmed
 
-        # Normalize audio to match RAVDESS volume levels
-        audio = librosa.util.normalize(audio)
+        # 5. RMS Volume Normalization
+        # Instead of max-peak normalization, scale so the RMS energy matches a standard value (e.g. 0.05)
+        # This matches the average loudness of RAVDESS.
+        rms = np.sqrt(np.mean(audio**2))
+        if rms > 0:
+            audio = audio * (0.05 / rms)
+            # Prevent clipping just in case
+            audio = np.clip(audio, -1.0, 1.0)
 
         # Extract features
         features = extract_rich_features(audio, sr)

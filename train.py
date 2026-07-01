@@ -9,6 +9,7 @@ import joblib
 
 import os
 import librosa
+import noisereduce as nr
 
 # ── 1. Feature Extraction (Richer Features: 400+) ────────────────────────
 def extract_rich_features(audio, sr):
@@ -73,8 +74,10 @@ def extract_rich_features(audio, sr):
         return None
 
 def add_noise(data):
-    noise_amp = 0.035 * np.random.uniform() * np.amax(data)
-    return data + noise_amp * np.random.normal(size=data.shape[0])
+    # Simulate background static/hiss instead of pure white noise
+    noise_amp = 0.05 * np.random.uniform() * np.amax(data)
+    noise = noise_amp * np.random.normal(size=data.shape[0])
+    return data + noise
 
 def stretch(data, rate=0.8):
     return librosa.effects.time_stretch(y=data, rate=rate)
@@ -82,9 +85,16 @@ def stretch(data, rate=0.8):
 def pitch(data, sr, pitch_factor=0.7):
     return librosa.effects.pitch_shift(y=data, sr=sr, n_steps=pitch_factor)
 
+def normalize_audio(audio):
+    # Match the RMS volume normalization we use in app.py
+    rms = np.sqrt(np.mean(audio**2))
+    if rms > 0:
+        audio = audio * (0.05 / rms)
+    return np.clip(audio, -1.0, 1.0)
+
 def load_or_extract_features():
-    features_file = "X_features_rich_aug.npy"
-    labels_file = "y_labels_rich_aug.npy"
+    features_file = "X_features_rich_aug_v2.npy"
+    labels_file = "y_labels_rich_aug_v2.npy"
     dataset_path = "dataset"
     
     if os.path.exists(features_file) and os.path.exists(labels_file):
@@ -107,35 +117,40 @@ def load_or_extract_features():
                 except:
                     continue
                 
-                # Load Audio
+                # Load Audio (without strict duration constraint for more natural length distribution)
                 try:
-                    audio, sr = librosa.load(file_path, duration=3.0, offset=0.5)
+                    audio, sr = librosa.load(file_path, sr=22050)
+                    audio, _ = librosa.effects.trim(audio, top_db=30)
                 except Exception as e:
                     print(f"Failed to load {file_path}")
                     continue
 
-                # 1. Original
-                feat = extract_rich_features(audio, sr)
+                # 1. Original (Normalized)
+                audio_norm = normalize_audio(audio)
+                feat = extract_rich_features(audio_norm, sr)
                 if feat is not None:
                     X.append(feat)
                     y.append(emotion)
                 
-                # 2. Noise
+                # 2. Noise (Added to unnormalized, then normalized)
                 noise_audio = add_noise(audio)
+                noise_audio = normalize_audio(noise_audio)
                 feat_noise = extract_rich_features(noise_audio, sr)
                 if feat_noise is not None:
                     X.append(feat_noise)
                     y.append(emotion)
                 
-                # 3. Stretch
+                # 3. Stretch (on unnormalized, then normalized)
                 stretch_audio = stretch(audio)
+                stretch_audio = normalize_audio(stretch_audio)
                 feat_stretch = extract_rich_features(stretch_audio, sr)
                 if feat_stretch is not None:
                     X.append(feat_stretch)
                     y.append(emotion)
                 
-                # 4. Pitch
+                # 4. Pitch (on unnormalized, then normalized)
                 pitch_audio = pitch(audio, sr)
+                pitch_audio = normalize_audio(pitch_audio)
                 feat_pitch = extract_rich_features(pitch_audio, sr)
                 if feat_pitch is not None:
                     X.append(feat_pitch)
