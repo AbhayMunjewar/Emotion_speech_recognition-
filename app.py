@@ -81,35 +81,26 @@ def extract_rich_features(audio, sr):
         print(f"Error extracting features: {e}")
         return None
 
-def preprocess_audio(audio, sr):
+def preprocess_audio(audio, sr, target_seconds=3.0):
     """
-    Preprocess microphone audio to match RAVDESS training conditions.
-    This function must produce audio that looks like what train.py feeds
-    into extract_rich_features().
+    Preprocess a chunk of microphone audio to match RAVDESS training conditions.
     """
-    # 1. Light noise reduction to remove mic static
-    #    (RAVDESS was recorded in a studio with no background noise)
-    audio = nr.reduce_noise(y=audio, sr=sr, prop_decrease=0.6, stationary=True)
-
-    # 2. Gentle silence trim (top_db=20 is gentle, preserves speech)
-    audio_trimmed, _ = librosa.effects.trim(audio, top_db=20)
-
-    # Safety: if trimming left less than 0.5s, use original audio
-    min_samples = int(0.5 * sr)
-    if len(audio_trimmed) < min_samples:
-        audio_trimmed = audio
-
-    # 3. Ensure exactly 3.0 seconds to match training data length
-    target_len = int(3.0 * sr)  # 66150 samples
-    if len(audio_trimmed) < target_len:
+    # 1. Gentle silence trim (top_db=20 is gentle, preserves speech)
+    # We only trim if it's the very beginning/end of the full file, but this
+    # function is now called per-chunk, so we might want to skip trimming here
+    # or keep it light. Let's just peak normalize and pad/crop to exactly target_seconds.
+    
+    target_len = int(target_seconds * sr)
+    if len(audio) < target_len:
         # Pad with silence (same as training)
-        audio_final = np.pad(audio_trimmed, (0, target_len - len(audio_trimmed)), 'constant')
+        audio_final = np.pad(audio, (0, target_len - len(audio)), 'constant')
     else:
-        # Crop to 3.0 seconds (same as training)
-        audio_final = audio_trimmed[:target_len]
+        # Crop to target_seconds (just in case)
+        audio_final = audio[:target_len]
 
-    # 4. Peak normalize (same as what librosa.load does by default for RAVDESS files)
-    audio_final = librosa.util.normalize(audio_final)
+    # Peak normalize (same as what librosa.load does by default for RAVDESS files)
+    if np.max(np.abs(audio_final)) > 0:
+        audio_final = librosa.util.normalize(audio_final)
 
     return audio_final
 
@@ -135,23 +126,52 @@ def predict():
         # Load audio at 22050 Hz (librosa default, matches training)
         audio, sr = librosa.load(temp_path, sr=22050)
 
-        # Preprocess to match training conditions
-        audio = preprocess_audio(audio, sr)
+        # 1. Global noise reduction
+        audio = nr.reduce_noise(y=audio, sr=sr, prop_decrease=0.6, stationary=True)
 
-        # Extract features
-        features = extract_rich_features(audio, sr)
-        if features is None:
+        # 2. Global gentle silence trim
+        audio, _ = librosa.effects.trim(audio, top_db=20)
+
+        # 3. Sliding window analysis for long audio
+        chunk_length = int(3.0 * sr)
+        hop_length = int(1.5 * sr) # 1.5 seconds overlap
+
+        all_probabilities = []
+
+        # If audio is very short, just do one chunk
+        if len(audio) < chunk_length:
+            chunks = [audio]
+        else:
+            # Extract overlapping 3-second chunks
+            chunks = []
+            for i in range(0, len(audio) - chunk_length + 1, hop_length):
+                chunks.append(audio[i:i + chunk_length])
+            # If the last chunk doesn't perfectly align, grab the last 3 seconds
+            if len(audio) > chunk_length and (len(audio) - chunk_length) % hop_length != 0:
+                chunks.append(audio[-chunk_length:])
+
+        for chunk in chunks:
+            # Preprocess chunk (pad/crop, normalize)
+            chunk_std = preprocess_audio(chunk, sr)
+
+            # Extract features
+            features = extract_rich_features(chunk_std, sr)
+            if features is not None:
+                # Scale features
+                features_scaled = scaler.transform(features.reshape(1, -1))
+                # Predict probabilities
+                probs = model.predict_proba(features_scaled)[0]
+                all_probabilities.append(probs)
+
+        if not all_probabilities:
             return jsonify({"error": "Failed to extract features from audio"}), 500
 
-        # Scale features
-        features_scaled = scaler.transform(features.reshape(1, -1))
-
-        # Predict probabilities
-        probabilities = model.predict_proba(features_scaled)[0]
-        prediction = EMOTIONS[np.argmax(probabilities)]
+        # Average the probabilities across all chunks
+        avg_probabilities = np.mean(all_probabilities, axis=0)
+        prediction = EMOTIONS[np.argmax(avg_probabilities)]
 
         # Map to dict
-        prob_dict = {EMOTIONS[i]: float(probabilities[i]) for i in range(len(EMOTIONS))}
+        prob_dict = {EMOTIONS[i]: float(avg_probabilities[i]) for i in range(len(EMOTIONS))}
 
         # Cleanup
         if os.path.exists(temp_path):
