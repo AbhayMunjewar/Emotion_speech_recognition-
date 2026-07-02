@@ -71,7 +71,7 @@ def extract_rich_features(audio, sr):
         features.extend([np.mean(zcr), np.std(zcr), np.mean(rms), np.std(rms)])
 
         # 8. Pitch / F0 stats → 4
-        f0, voiced, _ = librosa.pyin(audio, fmin=50, fmax=500, sr=sr)
+        f0, voiced, _ = librosa.pyin(audio, fmin=50, fmax=500, sr=sr, hop_length=1536)
         f0_clean = f0[~np.isnan(f0)] if np.any(~np.isnan(f0)) else np.array([0.0])
         features.extend([np.mean(f0_clean), np.std(f0_clean)])
         features.extend([np.max(f0_clean) - np.min(f0_clean), np.mean(voiced)])
@@ -80,6 +80,38 @@ def extract_rich_features(audio, sr):
     except Exception as e:
         print(f"Error extracting features: {e}")
         return None
+
+def preprocess_audio(audio, sr):
+    """
+    Preprocess microphone audio to match RAVDESS training conditions.
+    This function must produce audio that looks like what train.py feeds
+    into extract_rich_features().
+    """
+    # 1. Light noise reduction to remove mic static
+    #    (RAVDESS was recorded in a studio with no background noise)
+    audio = nr.reduce_noise(y=audio, sr=sr, prop_decrease=0.6, stationary=True)
+
+    # 2. Gentle silence trim (top_db=20 is gentle, preserves speech)
+    audio_trimmed, _ = librosa.effects.trim(audio, top_db=20)
+
+    # Safety: if trimming left less than 0.5s, use original audio
+    min_samples = int(0.5 * sr)
+    if len(audio_trimmed) < min_samples:
+        audio_trimmed = audio
+
+    # 3. Ensure exactly 3.0 seconds to match training data length
+    target_len = int(3.0 * sr)  # 66150 samples
+    if len(audio_trimmed) < target_len:
+        # Pad with silence (same as training)
+        audio_final = np.pad(audio_trimmed, (0, target_len - len(audio_trimmed)), 'constant')
+    else:
+        # Crop to 3.0 seconds (same as training)
+        audio_final = audio_trimmed[:target_len]
+
+    # 4. Peak normalize (same as what librosa.load does by default for RAVDESS files)
+    audio_final = librosa.util.normalize(audio_final)
+
+    return audio_final
 
 @app.route("/")
 def index():
@@ -100,31 +132,11 @@ def predict():
         temp_path = os.path.join(temp_dir, "uploaded_audio.wav")
         file.save(temp_path)
 
-        # 1. Load audio
+        # Load audio at 22050 Hz (librosa default, matches training)
         audio, sr = librosa.load(temp_path, sr=22050)
 
-        # 2. Noise reduction
-        audio = nr.reduce_noise(y=audio, sr=sr, prop_decrease=0.75)
-
-        # 3. Trim silence aggressively (threshold of 30 dB)
-        audio_trimmed, _ = librosa.effects.trim(audio, top_db=30)
-
-        # 4. Do NOT zero-pad to 3 seconds if shorter, just process the active speech.
-        # But if it's too long, crop it to 3.0 seconds to match max training length.
-        target_len = int(3.0 * sr)
-        if len(audio_trimmed) > target_len:
-            audio = audio_trimmed[:target_len]
-        else:
-            audio = audio_trimmed
-
-        # 5. RMS Volume Normalization
-        # Instead of max-peak normalization, scale so the RMS energy matches a standard value (e.g. 0.05)
-        # This matches the average loudness of RAVDESS.
-        rms = np.sqrt(np.mean(audio**2))
-        if rms > 0:
-            audio = audio * (0.05 / rms)
-            # Prevent clipping just in case
-            audio = np.clip(audio, -1.0, 1.0)
+        # Preprocess to match training conditions
+        audio = preprocess_audio(audio, sr)
 
         # Extract features
         features = extract_rich_features(audio, sr)
@@ -152,6 +164,8 @@ def predict():
         })
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":

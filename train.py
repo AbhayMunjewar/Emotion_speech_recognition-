@@ -63,7 +63,7 @@ def extract_rich_features(audio, sr):
         features.extend([np.mean(zcr), np.std(zcr), np.mean(rms), np.std(rms)])
 
         # 8. Pitch / F0 stats → 4
-        f0, voiced, _ = librosa.pyin(audio, fmin=50, fmax=500, sr=sr)
+        f0, voiced, _ = librosa.pyin(audio, fmin=50, fmax=500, sr=sr, hop_length=1536)
         f0_clean = f0[~np.isnan(f0)] if np.any(~np.isnan(f0)) else np.array([0.0])
         features.extend([np.mean(f0_clean), np.std(f0_clean)])
         features.extend([np.max(f0_clean) - np.min(f0_clean), np.mean(voiced)])
@@ -73,9 +73,10 @@ def extract_rich_features(audio, sr):
         print(f"Error extracting features: {e}")
         return None
 
+# ── Data Augmentation Functions ────────────────────────────────────────────
 def add_noise(data):
-    # Simulate background static/hiss instead of pure white noise
-    noise_amp = 0.05 * np.random.uniform() * np.amax(data)
+    """Add realistic background noise to simulate microphone recordings."""
+    noise_amp = 0.035 * np.random.uniform() * np.amax(data)
     noise = noise_amp * np.random.normal(size=data.shape[0])
     return data + noise
 
@@ -85,23 +86,42 @@ def stretch(data, rate=0.8):
 def pitch(data, sr, pitch_factor=0.7):
     return librosa.effects.pitch_shift(y=data, sr=sr, n_steps=pitch_factor)
 
-def normalize_audio(audio):
-    # Match the RMS volume normalization we use in app.py
-    rms = np.sqrt(np.mean(audio**2))
-    if rms > 0:
-        audio = audio * (0.05 / rms)
-    return np.clip(audio, -1.0, 1.0)
+def standardize_audio(audio, sr, target_seconds=3.0):
+    """
+    Standardize audio to exactly target_seconds.
+    This MUST match the preprocessing in app.py's preprocess_audio().
+    """
+    # Gentle silence trim
+    audio_trimmed, _ = librosa.effects.trim(audio, top_db=20)
+    
+    # Safety: if trimming left less than 0.5s, use original
+    min_samples = int(0.5 * sr)
+    if len(audio_trimmed) < min_samples:
+        audio_trimmed = audio
+    
+    # Pad or crop to exactly target_seconds
+    target_len = int(target_seconds * sr)
+    if len(audio_trimmed) < target_len:
+        audio_trimmed = np.pad(audio_trimmed, (0, target_len - len(audio_trimmed)), 'constant')
+    else:
+        audio_trimmed = audio_trimmed[:target_len]
+    
+    # Peak normalize
+    audio_trimmed = librosa.util.normalize(audio_trimmed)
+    
+    return audio_trimmed
 
 def load_or_extract_features():
-    features_file = "X_features_rich_aug_v2.npy"
-    labels_file = "y_labels_rich_aug_v2.npy"
+    # Use v3 cache to force re-extraction with the new pipeline
+    features_file = "X_features_v3.npy"
+    labels_file = "y_labels_v3.npy"
     dataset_path = "dataset"
     
     if os.path.exists(features_file) and os.path.exists(labels_file):
-        print(f"Loading cached richer augmented features from {features_file}...")
+        print(f"Loading cached features from {features_file}...")
         return np.load(features_file), np.load(labels_file)
         
-    print("Extracting 400+ richer features with Data Augmentation (4x dataset size). This will take ~10 minutes...")
+    print("Extracting features with augmentation (6x per sample). This will take ~15 minutes...")
     X, y = [], []
     count = 0
     for actor_folder in sorted(os.listdir(dataset_path)):
@@ -117,48 +137,63 @@ def load_or_extract_features():
                 except:
                     continue
                 
-                # Load Audio (without strict duration constraint for more natural length distribution)
+                # Load Audio
                 try:
-                    audio, sr = librosa.load(file_path, sr=22050)
-                    audio, _ = librosa.effects.trim(audio, top_db=30)
+                    audio_raw, sr = librosa.load(file_path, sr=22050)
                 except Exception as e:
-                    print(f"Failed to load {file_path}")
+                    print(f"Failed to load {file_path}: {e}")
                     continue
 
-                # 1. Original (Normalized)
-                audio_norm = normalize_audio(audio)
-                feat = extract_rich_features(audio_norm, sr)
+                # 1. Original (standardized exactly like app.py)
+                audio_std = standardize_audio(audio_raw, sr)
+                feat = extract_rich_features(audio_std, sr)
                 if feat is not None:
                     X.append(feat)
                     y.append(emotion)
                 
-                # 2. Noise (Added to unnormalized, then normalized)
-                noise_audio = add_noise(audio)
-                noise_audio = normalize_audio(noise_audio)
-                feat_noise = extract_rich_features(noise_audio, sr)
+                # 2. With noise (simulates microphone recordings)
+                noise_audio = add_noise(audio_raw)
+                noise_std = standardize_audio(noise_audio, sr)
+                feat_noise = extract_rich_features(noise_std, sr)
                 if feat_noise is not None:
                     X.append(feat_noise)
                     y.append(emotion)
                 
-                # 3. Stretch (on unnormalized, then normalized)
-                stretch_audio = stretch(audio)
-                stretch_audio = normalize_audio(stretch_audio)
-                feat_stretch = extract_rich_features(stretch_audio, sr)
+                # 3. Stretch (slower)
+                stretch_audio = stretch(audio_raw, rate=0.8)
+                stretch_std = standardize_audio(stretch_audio, sr)
+                feat_stretch = extract_rich_features(stretch_std, sr)
                 if feat_stretch is not None:
                     X.append(feat_stretch)
                     y.append(emotion)
                 
-                # 4. Pitch (on unnormalized, then normalized)
-                pitch_audio = pitch(audio, sr)
-                pitch_audio = normalize_audio(pitch_audio)
-                feat_pitch = extract_rich_features(pitch_audio, sr)
+                # 4. Stretch (faster)
+                stretch_audio2 = stretch(audio_raw, rate=1.2)
+                stretch_std2 = standardize_audio(stretch_audio2, sr)
+                feat_stretch2 = extract_rich_features(stretch_std2, sr)
+                if feat_stretch2 is not None:
+                    X.append(feat_stretch2)
+                    y.append(emotion)
+                
+                # 5. Pitch up
+                pitch_audio = pitch(audio_raw, sr, pitch_factor=2.0)
+                pitch_std = standardize_audio(pitch_audio, sr)
+                feat_pitch = extract_rich_features(pitch_std, sr)
                 if feat_pitch is not None:
                     X.append(feat_pitch)
+                    y.append(emotion)
+                
+                # 6. Pitch down
+                pitch_audio2 = pitch(audio_raw, sr, pitch_factor=-2.0)
+                pitch_std2 = standardize_audio(pitch_audio2, sr)
+                feat_pitch2 = extract_rich_features(pitch_std2, sr)
+                if feat_pitch2 is not None:
+                    X.append(feat_pitch2)
                     y.append(emotion)
 
                 count += 1
                 if count % 50 == 0:
-                    print(f"Processed {count} original files (extracted {count * 4} samples)...")
+                    print(f"Processed {count} files ({count * 6} augmented samples)...")
                         
     X = np.array(X)
     y = np.array(y)
@@ -168,23 +203,21 @@ def load_or_extract_features():
 
 X, y = load_or_extract_features()
 
-print(f"X shape: {X.shape}")   # Expected: (1440, 482)
-print(f"y shape: {y.shape}")   # Expected: (1440,)
+print(f"X shape: {X.shape}")
+print(f"y shape: {y.shape}")
 
 # ── 2. Split -> train / test ─────────────────────────────
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, test_size=0.2, random_state=42, stratify=y
 )
-# 80% train (1152 files), 20% test (288 files)
 print(f"Train: {X_train.shape[0]} | Test: {X_test.shape[0]}")
 
-# ── 3. Scale & Select Features ────────────────────────────
-# MLP needs features on same scale
+# ── 3. Scale Features ────────────────────────────────────
 scaler = StandardScaler()
 X_train = scaler.fit_transform(X_train)
 X_test  = scaler.transform(X_test)
 
-print(f"Using all {X_train.shape[1]} features (no feature selection needed for augmented dataset).")
+print(f"Using all {X_train.shape[1]} features.")
 
 from sklearn.svm import SVC
 from sklearn.ensemble import VotingClassifier, ExtraTreesClassifier
@@ -192,15 +225,15 @@ from sklearn.neural_network import MLPClassifier
 from xgboost import XGBClassifier
 
 # ── 4. Train Model ──────────────────────────────────────
-print("\nTraining Ensemble (MLP + SVM + ExtraTrees + XGBoost) to reach 90%+...")
+print("\nTraining Ensemble (MLP + SVM + ExtraTrees + XGBoost)...")
 
 mlp = MLPClassifier(
     hidden_layer_sizes=(512, 256, 128),
     activation='relu',
     solver='adam',
-    alpha=0.01,
+    alpha=0.005,
     learning_rate='adaptive',
-    max_iter=800,
+    max_iter=1000,
     random_state=42
 )
 
@@ -256,7 +289,6 @@ plt.xlabel("Predicted")
 plt.ylabel("Actual")
 plt.tight_layout()
 plt.savefig("confusion_matrix.png")
-# plt.show() # Commented out so the background task doesn't freeze waiting for you to close the image window
 print("Confusion matrix saved!")
 
 # ── 7. Save model + scaler ──────────────────────────────
